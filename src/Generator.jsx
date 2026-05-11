@@ -321,22 +321,20 @@ export default function Generator() {
     }, 1400);
 
     var cfg = CONFIGS[type];
-    fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": import.meta.env.VITE_ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 8000,
-        messages: [{ role: "user", content: cfg.prompt(title, niche || "General", audience || "General audience") }],
-      }),
-    })
+    fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${import.meta.env.VITE_GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: cfg.prompt(title, niche || "General", audience || "General audience") }] }],
+          generationConfig: { maxOutputTokens: 8000 },
+        }),
+      }
+    )
     .then(function(res) { return res.json(); })
     .then(function(data) {
-      var raw = (data.content && data.content[0] && data.content[0].text) ? data.content[0].text : "{}";
+      var raw = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) ? data.candidates[0].content.parts[0].text : "{}";
       var clean = raw.replace(/```json/g, "").replace(/```/g, "").trim();
       var parsed = JSON.parse(clean);
       clearInterval(tick);
