@@ -338,7 +338,28 @@ export default function Generator() {
       console.log("[Gemini Generator] response:", JSON.stringify(data, null, 2));
       var raw = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) ? data.candidates[0].content.parts[0].text : "{}";
       var clean = raw.replace(/```json/g, "").replace(/```/g, "").trim();
-      var parsed = JSON.parse(clean);
+      var parsed;
+      var parseError;
+      // 1. Try direct parse
+      try { parsed = JSON.parse(clean); } catch(e1) {
+        // 2. Try unescaping \" -> "
+        try { parsed = JSON.parse(clean.replace(/\\"/g, '"')); } catch(e2) {
+          // 3. Try slicing to outermost { }
+          try {
+            var s = clean.indexOf("{"); var e = clean.lastIndexOf("}");
+            if (s !== -1 && e !== -1) parsed = JSON.parse(clean.slice(s, e + 1));
+            else throw new Error("No JSON object found");
+          } catch(e3) {
+            parseError = e3.message;
+          }
+        }
+      }
+      if (!parsed) {
+        clearInterval(tick);
+        setErr("Failed to parse response: " + parseError);
+        setBusy(false);
+        return;
+      }
       clearInterval(tick);
       setPct(100);
       setPLabel("Done!");
