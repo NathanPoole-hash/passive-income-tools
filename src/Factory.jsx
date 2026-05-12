@@ -102,6 +102,8 @@ Respond ONLY with a valid JSON object. No preamble, no markdown fences, just raw
         }
       );
       const data = await res.json();
+      console.log("[Gemini Factory] key present:", !!import.meta.env.VITE_GEMINI_KEY);
+      console.log("[Gemini Factory] response:", JSON.stringify(data, null, 2));
       const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
       // Robustly extract JSON by finding outermost { }
       const start = raw.indexOf("{");

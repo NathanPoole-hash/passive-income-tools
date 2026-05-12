@@ -334,6 +334,8 @@ export default function Generator() {
     )
     .then(function(res) { return res.json(); })
     .then(function(data) {
+      console.log("[Gemini Generator] key present:", !!import.meta.env.VITE_GEMINI_KEY);
+      console.log("[Gemini Generator] response:", JSON.stringify(data, null, 2));
       var raw = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) ? data.candidates[0].content.parts[0].text : "{}";
       var clean = raw.replace(/```json/g, "").replace(/```/g, "").trim();
       var parsed = JSON.parse(clean);
