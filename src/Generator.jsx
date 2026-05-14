@@ -16,8 +16,8 @@ Write exactly 4 chapters. Real content only, no placeholders.`,
     prompt: (t, n, a) => `You are an expert prompt engineer. Create a premium AI Prompt Pack.
 Title: "${t}" | Niche: ${n} | Audience: ${a}
 Respond ONLY with raw JSON (no markdown, no fences):
-{"subtitle":"...","introduction":"100 word how-to-use guide","categories":[{"name":"...","description":"...","prompts":[{"number":1,"title":"...","useCase":"one sentence","prompt":"Full detailed prompt with [VARIABLES] min 2 sentences","proTip":"..."}]}],"bonusTips":["tip1","tip2","tip3"]}
-Write exactly 3 categories with 5 prompts each. Every prompt must be specific and immediately usable.`,
+{"subtitle":"...","introduction":"60 word how-to-use guide","categories":[{"name":"...","description":"...","prompts":[{"number":1,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES]","proTip":"..."}]}],"bonusTips":["tip1","tip2","tip3"]}
+Write exactly 2 categories with 4 prompts each. Keep each prompt under 80 words. Keep each proTip under 20 words. Every prompt must be specific and immediately usable.`,
   },
   template: {
     label: "Notion Template", icon: "⚡",
@@ -328,7 +328,7 @@ export default function Generator() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: cfg.prompt(title, niche || "General", audience || "General audience") }] }],
-          generationConfig: { maxOutputTokens: 8192, temperature: 0.7 },
+          generationConfig: { maxOutputTokens: 4096, temperature: 0.7 },
         }),
       }
     )
