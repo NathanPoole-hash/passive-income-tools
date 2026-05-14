@@ -7,8 +7,8 @@ const CONFIGS = {
     prompt: (t, n, a) => `You are an expert digital product creator. Write a complete premium eBook.
 Title: "${t}" | Niche: ${n} | Audience: ${a}
 Respond ONLY with raw JSON (no markdown, no fences):
-{"subtitle":"...","introduction":"Full intro 250 words hooking reader and promising transformation","chapters":[{"number":1,"title":"...","summary":"one sentence","content":"Full 300 word chapter with tips, a named framework, and 3 action points prefixed with arrow"}],"conclusion":"150 word inspiring conclusion","bonusChecklist":["item1","item2","item3","item4","item5","item6","item7","item8"]}
-Write exactly 6 chapters. Real content only, no placeholders.`,
+{"subtitle":"...","introduction":"Full intro 150 words hooking reader and promising transformation","chapters":[{"number":1,"title":"...","summary":"one sentence","content":"Full 200 word chapter with tips, a named framework, and 3 action points prefixed with arrow"}],"conclusion":"100 word inspiring conclusion","bonusChecklist":["item1","item2","item3","item4","item5","item6"]}
+Write exactly 4 chapters. Real content only, no placeholders.`,
   },
   prompts: {
     label: "AI Prompt Pack", icon: "🤖",
@@ -16,8 +16,8 @@ Write exactly 6 chapters. Real content only, no placeholders.`,
     prompt: (t, n, a) => `You are an expert prompt engineer. Create a premium AI Prompt Pack.
 Title: "${t}" | Niche: ${n} | Audience: ${a}
 Respond ONLY with raw JSON (no markdown, no fences):
-{"subtitle":"...","introduction":"150 word how-to-use guide","categories":[{"name":"...","description":"...","prompts":[{"number":1,"title":"...","useCase":"one sentence","prompt":"Full detailed prompt with [VARIABLES] min 3 sentences","proTip":"..."}]}],"bonusTips":["tip1","tip2","tip3","tip4","tip5"]}
-Write exactly 5 categories with 10 prompts each. Every prompt must be specific and immediately usable.`,
+{"subtitle":"...","introduction":"100 word how-to-use guide","categories":[{"name":"...","description":"...","prompts":[{"number":1,"title":"...","useCase":"one sentence","prompt":"Full detailed prompt with [VARIABLES] min 2 sentences","proTip":"..."}]}],"bonusTips":["tip1","tip2","tip3"]}
+Write exactly 3 categories with 5 prompts each. Every prompt must be specific and immediately usable.`,
   },
   template: {
     label: "Notion Template", icon: "⚡",
@@ -328,7 +328,7 @@ export default function Generator() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: cfg.prompt(title, niche || "General", audience || "General audience") }] }],
-          generationConfig: { maxOutputTokens: 8000 },
+          generationConfig: { maxOutputTokens: 8192, temperature: 0.7 },
         }),
       }
     )
