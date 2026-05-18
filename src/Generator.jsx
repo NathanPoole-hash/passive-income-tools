@@ -13,6 +13,7 @@ function gemini(prompt) {
   })
   .then(function(res) { return res.json(); })
   .then(function(data) {
+    console.log("[Gemini raw]", JSON.stringify(data, null, 2));
     if (data.error) throw new Error(data.error.message || "Gemini error " + data.error.code);
     var raw = (data.candidates?.[0]?.content?.parts?.[0]?.text) || null;
     if (!raw) throw new Error("Empty response from Gemini");
