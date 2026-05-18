@@ -321,61 +321,91 @@ export default function Generator() {
     }, 1400);
 
     var cfg = CONFIGS[type];
-    fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${import.meta.env.VITE_GEMINI_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: cfg.prompt(title, niche || "General", audience || "General audience") }] }],
-          generationConfig: { maxOutputTokens: 4096, temperature: 0.7 },
-        }),
-      }
-    )
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-      console.log("[Gemini Generator] key present:", !!import.meta.env.VITE_GEMINI_KEY);
-      console.log("[Gemini Generator] response:", JSON.stringify(data, null, 2));
-      var raw = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) ? data.candidates[0].content.parts[0].text : "{}";
-      var clean = raw.replace(/```json/g, "").replace(/```/g, "").trim();
-      var parsed;
-      var parseError;
-      // 1. Try direct parse
-      try { parsed = JSON.parse(clean); } catch(e1) {
-        // 2. Try unescaping \" -> "
-        try { parsed = JSON.parse(clean.replace(/\\"/g, '"')); } catch(e2) {
-          // 3. Try slicing to outermost { }
-          try {
-            var s = clean.indexOf("{"); var e = clean.lastIndexOf("}");
-            if (s !== -1 && e !== -1) parsed = JSON.parse(clean.slice(s, e + 1));
-            else throw new Error("No JSON object found");
-          } catch(e3) {
-            parseError = e3.message;
+    var MAX_RETRIES = 3;
+
+    function attempt(attemptsLeft) {
+      fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${import.meta.env.VITE_GEMINI_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: cfg.prompt(title, niche || "General", audience || "General audience") }] }],
+            generationConfig: { maxOutputTokens: 4096, temperature: 0.7 },
+          }),
+        }
+      )
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        // Detect 503 / UNAVAILABLE in response body
+        if (data.error && (data.error.code === 503 || data.error.status === "UNAVAILABLE")) {
+          if (attemptsLeft > 1) {
+            var attempt_num = MAX_RETRIES - attemptsLeft + 1;
+            setPLabel("Gemini is busy — retrying (" + attempt_num + "/" + MAX_RETRIES + ")...");
+            setTimeout(function() { attempt(attemptsLeft - 1); }, 2000);
+          } else {
+            clearInterval(tick);
+            setErr("Gemini is currently overloaded. Please wait 30 seconds and try again.");
+            setBusy(false);
+          }
+          return;
+        }
+
+        var raw = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) ? data.candidates[0].content.parts[0].text : null;
+
+        // No candidates = API error we didn't catch above
+        if (!raw) {
+          clearInterval(tick);
+          setErr("No content returned. " + (data.error ? data.error.message : "Please try again."));
+          setBusy(false);
+          return;
+        }
+
+        var clean = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+        var parsed;
+        var parseError;
+        try { parsed = JSON.parse(clean); } catch(e1) {
+          try { parsed = JSON.parse(clean.replace(/\\"/g, '"')); } catch(e2) {
+            try {
+              var st = clean.indexOf("{"); var en = clean.lastIndexOf("}");
+              if (st !== -1 && en !== -1) parsed = JSON.parse(clean.slice(st, en + 1));
+              else throw new Error("No JSON object found");
+            } catch(e3) { parseError = e3.message; }
           }
         }
-      }
-      if (!parsed) {
+
+        if (!parsed) {
+          clearInterval(tick);
+          setErr("Failed to parse response: " + parseError);
+          setBusy(false);
+          return;
+        }
+
         clearInterval(tick);
-        setErr("Failed to parse response: " + parseError);
-        setBusy(false);
-        return;
-      }
-      clearInterval(tick);
-      setPct(100);
-      setPLabel("Done!");
-      setTimeout(function() {
-        setResult(Object.assign({}, parsed, { _type: type, _title: title, _niche: niche }));
-        setHistory(function(h) { return [{ type: type, title: title, data: parsed, ts: Date.now() }].concat(h.slice(0, 7)); });
-        setBusy(false);
-        setTab("preview");
-        if (top.current) top.current.scrollIntoView({ behavior: "smooth" });
-      }, 400);
-    })
-    .catch(function() {
-      clearInterval(tick);
-      setErr("Generation failed - please try again.");
-      setBusy(false);
-    });
+        setPct(100);
+        setPLabel("Done!");
+        setTimeout(function() {
+          setResult(Object.assign({}, parsed, { _type: type, _title: title, _niche: niche }));
+          setHistory(function(h) { return [{ type: type, title: title, data: parsed, ts: Date.now() }].concat(h.slice(0, 7)); });
+          setBusy(false);
+          setTab("preview");
+          if (top.current) top.current.scrollIntoView({ behavior: "smooth" });
+        }, 400);
+      })
+      .catch(function() {
+        if (attemptsLeft > 1) {
+          var attempt_num = MAX_RETRIES - attemptsLeft + 1;
+          setPLabel("Network error — retrying (" + attempt_num + "/" + MAX_RETRIES + ")...");
+          setTimeout(function() { attempt(attemptsLeft - 1); }, 2000);
+        } else {
+          clearInterval(tick);
+          setErr("Generation failed after 3 attempts. Check your connection and try again.");
+          setBusy(false);
+        }
+      });
+    }
+
+    attempt(MAX_RETRIES);
   }
 
   var cfg = CONFIGS[type] || null;
