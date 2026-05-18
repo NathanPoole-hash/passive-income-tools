@@ -1,41 +1,105 @@
 import { useState, useEffect, useRef } from "react";
 
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+
+function gemini(prompt) {
+  return fetch(`${API_URL}?key=${import.meta.env.VITE_GEMINI_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 2048, temperature: 0.7 },
+    }),
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(data) {
+    if (data.error) throw new Error(data.error.message || "Gemini error " + data.error.code);
+    var raw = (data.candidates?.[0]?.content?.parts?.[0]?.text) || null;
+    if (!raw) throw new Error("Empty response from Gemini");
+    return parseJSON(raw);
+  });
+}
+
+function parseJSON(raw) {
+  var clean = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+  try { return JSON.parse(clean); } catch(e1) {
+    try { return JSON.parse(clean.replace(/\\"/g, '"')); } catch(e2) {
+      var st = clean.indexOf("{"); var en = clean.lastIndexOf("}");
+      if (st !== -1 && en !== -1) try { return JSON.parse(clean.slice(st, en + 1)); } catch(e3) {}
+      throw new Error("Could not parse JSON: " + e1.message);
+    }
+  }
+}
+
+function withRetry(fn, retries) {
+  return fn().catch(function(err) {
+    if (retries > 0 && (err.message.includes("503") || err.message.includes("UNAVAILABLE") || err.message.includes("overloaded"))) {
+      return new Promise(function(res) { setTimeout(res, 2500); }).then(function() { return withRetry(fn, retries - 1); });
+    }
+    throw err;
+  });
+}
+
 const CONFIGS = {
   ebook: {
     label: "eBook / Guide", icon: "📖",
     desc: "Full chapters, frameworks & actionable content",
-    prompt: (t, n, a) => `You are an expert digital product creator. Write a complete premium eBook.
+    call1: (t, n, a) => `You are an expert digital product creator. Write part 1 of a premium eBook.
 Title: "${t}" | Niche: ${n} | Audience: ${a}
 Respond ONLY with raw JSON (no markdown, no fences):
-{"subtitle":"...","introduction":"Full intro 150 words hooking reader and promising transformation","chapters":[{"number":1,"title":"...","summary":"one sentence","content":"Full 200 word chapter with tips, a named framework, and 3 action points prefixed with arrow"}],"conclusion":"100 word inspiring conclusion","bonusChecklist":["item1","item2","item3","item4","item5","item6"]}
-Write exactly 4 chapters. Real content only, no placeholders.`,
+{"subtitle":"...","introduction":"Full intro 180 words hooking reader and promising transformation","chapters":[{"number":1,"title":"...","summary":"one sentence","content":"Full 220 word chapter with tips, a named framework, and 3 action points prefixed with →"},{"number":2,"title":"...","summary":"one sentence","content":"Full 220 word chapter with tips, a named framework, and 3 action points prefixed with →"}]}
+Real content only, no placeholders.`,
+    call2: (t, n, a) => `You are an expert digital product creator. Write part 2 of a premium eBook.
+Title: "${t}" | Niche: ${n} | Audience: ${a}
+Respond ONLY with raw JSON (no markdown, no fences):
+{"chapters":[{"number":3,"title":"...","summary":"one sentence","content":"Full 220 word chapter with tips, a named framework, and 3 action points prefixed with →"},{"number":4,"title":"...","summary":"one sentence","content":"Full 220 word chapter with tips, a named framework, and 3 action points prefixed with →"}],"conclusion":"130 word inspiring conclusion with clear next steps","bonusChecklist":["item1","item2","item3","item4","item5","item6","item7","item8"]}
+Real content only, no placeholders.`,
+    merge: (a, b) => ({ ...a, chapters: [...(a.chapters||[]), ...(b.chapters||[])], conclusion: b.conclusion, bonusChecklist: b.bonusChecklist }),
   },
   prompts: {
     label: "AI Prompt Pack", icon: "🤖",
     desc: "50 curated prompts organised by category",
-    prompt: (t, n, a) => `You are an expert prompt engineer. Create a premium AI Prompt Pack.
+    call1: (t, n, a) => `You are an expert prompt engineer. Write part 1 of a premium AI Prompt Pack.
 Title: "${t}" | Niche: ${n} | Audience: ${a}
 Respond ONLY with raw JSON (no markdown, no fences):
-{"subtitle":"...","introduction":"60 word how-to-use guide","categories":[{"name":"...","description":"...","prompts":[{"number":1,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES]","proTip":"..."}]}],"bonusTips":["tip1","tip2","tip3"]}
-Write exactly 2 categories with 4 prompts each. Keep each prompt under 80 words. Keep each proTip under 20 words. Every prompt must be specific and immediately usable.`,
+{"subtitle":"...","introduction":"80 word how-to-use guide","categories":[{"name":"...","description":"...","prompts":[{"number":1,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":2,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":3,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":4,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":5,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"}]},{"name":"...","description":"...","prompts":[{"number":6,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":7,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":8,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":9,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":10,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"}]}]}
+Every prompt must be specific and immediately usable.`,
+    call2: (t, n, a) => `You are an expert prompt engineer. Write part 2 of a premium AI Prompt Pack.
+Title: "${t}" | Niche: ${n} | Audience: ${a}
+Respond ONLY with raw JSON (no markdown, no fences):
+{"categories":[{"name":"...","description":"...","prompts":[{"number":11,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":12,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":13,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":14,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":15,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"}]},{"name":"...","description":"...","prompts":[{"number":16,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":17,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":18,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":19,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"},{"number":20,"title":"...","useCase":"one sentence","prompt":"Detailed prompt with [VARIABLES] under 80 words","proTip":"under 20 words"}]}],"bonusTips":["tip1","tip2","tip3","tip4","tip5"]}
+Every prompt must be specific and immediately usable.`,
+    merge: (a, b) => ({ ...a, categories: [...(a.categories||[]), ...(b.categories||[])], bonusTips: b.bonusTips }),
   },
   template: {
     label: "Notion Template", icon: "⚡",
     desc: "Database schemas, views, setup guide and workflows",
-    prompt: (t, n, a) => `You are an expert Notion designer. Create a premium Notion template product.
+    call1: (t, n, a) => `You are an expert Notion designer. Write part 1 of a premium Notion template product.
 Title: "${t}" | Niche: ${n} | Audience: ${a}
 Respond ONLY with raw JSON (no markdown, no fences):
-{"subtitle":"...","overview":"200 word overview","databases":[{"name":"...","purpose":"...","properties":[{"name":"...","type":"text","description":"..."}],"views":["view1","view2","view3"]}],"setupGuide":[{"step":1,"title":"...","instructions":"2-3 sentences"}],"workflows":[{"name":"...","description":"3-4 sentences"}],"proTips":["t1","t2","t3","t4","t5","t6"],"faq":[{"question":"...","answer":"2-3 sentences"}]}
-4 databases with 6 properties each, 6 setup steps, 3 workflows, 4 FAQs.`,
+{"subtitle":"...","overview":"200 word overview of the full system and its benefits","databases":[{"name":"...","purpose":"...","properties":[{"name":"...","type":"text","description":"..."},{"name":"...","type":"select","description":"..."},{"name":"...","type":"date","description":"..."},{"name":"...","type":"checkbox","description":"..."},{"name":"...","type":"number","description":"..."},{"name":"...","type":"formula","description":"..."}],"views":["view1","view2","view3"]},{"name":"...","purpose":"...","properties":[{"name":"...","type":"text","description":"..."},{"name":"...","type":"select","description":"..."},{"name":"...","type":"date","description":"..."},{"name":"...","type":"checkbox","description":"..."},{"name":"...","type":"number","description":"..."},{"name":"...","type":"formula","description":"..."}],"views":["view1","view2","view3"]},{"name":"...","purpose":"...","properties":[{"name":"...","type":"text","description":"..."},{"name":"...","type":"select","description":"..."},{"name":"...","type":"date","description":"..."},{"name":"...","type":"checkbox","description":"..."},{"name":"...","type":"number","description":"..."},{"name":"...","type":"formula","description":"..."}],"views":["view1","view2","view3"]}]}
+4 databases with 6 properties each. Real, specific content only.`,
+    call2: (t, n, a) => `You are an expert Notion designer. Write part 2 of a premium Notion template product.
+Title: "${t}" | Niche: ${n} | Audience: ${a}
+Respond ONLY with raw JSON (no markdown, no fences):
+{"setupGuide":[{"step":1,"title":"...","instructions":"2-3 sentences"},{"step":2,"title":"...","instructions":"2-3 sentences"},{"step":3,"title":"...","instructions":"2-3 sentences"},{"step":4,"title":"...","instructions":"2-3 sentences"},{"step":5,"title":"...","instructions":"2-3 sentences"},{"step":6,"title":"...","instructions":"2-3 sentences"}],"workflows":[{"name":"...","description":"3-4 sentences of exactly how to use this workflow daily"},{"name":"...","description":"3-4 sentences of exactly how to use this workflow daily"},{"name":"...","description":"3-4 sentences of exactly how to use this workflow daily"}],"proTips":["tip1","tip2","tip3","tip4","tip5","tip6"],"faq":[{"question":"...","answer":"2-3 sentences"},{"question":"...","answer":"2-3 sentences"},{"question":"...","answer":"2-3 sentences"},{"question":"...","answer":"2-3 sentences"}]}
+Real, specific content only. No placeholders.`,
+    merge: (a, b) => ({ ...a, ...b }),
   },
   printable: {
     label: "Printable / Planner", icon: "📋",
     desc: "Sections, trackers, prompts and instructions",
-    prompt: (t, n, a) => `You are an expert digital planner creator. Write content for a premium printable planner.
+    call1: (t, n, a) => `You are an expert digital planner creator. Write part 1 of a premium printable planner.
 Title: "${t}" | Niche: ${n} | Audience: ${a}
 Respond ONLY with raw JSON (no markdown, no fences):
-{"subtitle":"...","welcomeMessage":"150 word warm welcome","sections":[{"name":"...","pageCount":4,"purpose":"...","pageLayout":"...","prompts":["p1","p2","p3","p4","p5"]}],"dailyPageElements":["e1","e2","e3","e4","e5"],"trackers":[{"name":"...","description":"...","fields":["f1","f2","f3","f4"]}],"affirmations":["a1","a2","a3","a4","a5","a6"],"instructions":"150 word how-to-use guide"}
-5 sections, 3 trackers. Everything niche-specific.`,
+{"subtitle":"...","welcomeMessage":"180 word warm welcome that sets expectations and builds excitement","sections":[{"name":"...","pageCount":4,"purpose":"...","pageLayout":"describe the physical layout of each page","prompts":["reflection prompt 1","reflection prompt 2","reflection prompt 3","reflection prompt 4","reflection prompt 5"]},{"name":"...","pageCount":4,"purpose":"...","pageLayout":"describe the physical layout of each page","prompts":["reflection prompt 1","reflection prompt 2","reflection prompt 3","reflection prompt 4","reflection prompt 5"]},{"name":"...","pageCount":4,"purpose":"...","pageLayout":"describe the physical layout of each page","prompts":["reflection prompt 1","reflection prompt 2","reflection prompt 3","reflection prompt 4","reflection prompt 5"]}]}
+Everything niche-specific. Real content only.`,
+    call2: (t, n, a) => `You are an expert digital planner creator. Write part 2 of a premium printable planner.
+Title: "${t}" | Niche: ${n} | Audience: ${a}
+Respond ONLY with raw JSON (no markdown, no fences):
+{"sections":[{"name":"...","pageCount":4,"purpose":"...","pageLayout":"describe the physical layout of each page","prompts":["reflection prompt 1","reflection prompt 2","reflection prompt 3","reflection prompt 4","reflection prompt 5"]},{"name":"...","pageCount":4,"purpose":"...","pageLayout":"describe the physical layout of each page","prompts":["reflection prompt 1","reflection prompt 2","reflection prompt 3","reflection prompt 4","reflection prompt 5"]}],"dailyPageElements":["element1","element2","element3","element4","element5","element6"],"trackers":[{"name":"...","description":"...","fields":["f1","f2","f3","f4","f5"]},{"name":"...","description":"...","fields":["f1","f2","f3","f4","f5"]},{"name":"...","description":"...","fields":["f1","f2","f3","f4","f5"]}],"affirmations":["a1","a2","a3","a4","a5","a6","a7","a8"],"instructions":"180 word how-to-use guide with daily, weekly and monthly rhythms"}
+Everything niche-specific. Real content only.`,
+    merge: (a, b) => ({ ...a, sections: [...(a.sections||[]), ...(b.sections||[])], dailyPageElements: b.dailyPageElements, trackers: b.trackers, affirmations: b.affirmations, instructions: b.instructions }),
   },
 };
 
@@ -44,57 +108,48 @@ function buildExport(type, d, title, subtitle) {
   var o = title + "\n" + (subtitle || "") + "\n" + hr + "\n\n";
   if (type === "ebook") {
     o += "INTRODUCTION\n\n" + (d.introduction || "") + "\n\n" + hr + "\n\n";
-    var chs = d.chapters || [];
-    for (var i = 0; i < chs.length; i++) {
-      o += "CHAPTER " + chs[i].number + ": " + chs[i].title + "\n" + chs[i].summary + "\n\n" + chs[i].content + "\n\n" + hr + "\n\n";
-    }
+    (d.chapters || []).forEach(function(ch) {
+      o += "CHAPTER " + ch.number + ": " + ch.title + "\n" + ch.summary + "\n\n" + ch.content + "\n\n" + hr + "\n\n";
+    });
     o += "CONCLUSION\n\n" + (d.conclusion || "") + "\n\nBONUS CHECKLIST\n\n";
-    var bl = d.bonusChecklist || [];
-    for (var j = 0; j < bl.length; j++) { o += "[ ] " + bl[j] + "\n"; }
+    (d.bonusChecklist || []).forEach(function(item) { o += "[ ] " + item + "\n"; });
   } else if (type === "prompts") {
     o += "HOW TO USE\n\n" + (d.introduction || "") + "\n\n" + hr + "\n\n";
-    var cats = d.categories || [];
-    for (var ci = 0; ci < cats.length; ci++) {
-      o += cats[ci].name.toUpperCase() + "\n" + cats[ci].description + "\n\n";
-      var ps = cats[ci].prompts || [];
-      for (var pi = 0; pi < ps.length; pi++) {
-        o += "#" + ps[pi].number + " " + ps[pi].title + "\nWhen: " + ps[pi].useCase + "\n\n" + ps[pi].prompt + "\nTip: " + ps[pi].proTip + "\n\n";
-      }
+    (d.categories || []).forEach(function(cat) {
+      o += cat.name.toUpperCase() + "\n" + cat.description + "\n\n";
+      (cat.prompts || []).forEach(function(p) {
+        o += "#" + p.number + " " + p.title + "\nWhen: " + p.useCase + "\n\n" + p.prompt + "\nTip: " + p.proTip + "\n\n";
+      });
       o += hr + "\n\n";
-    }
+    });
     o += "BONUS TIPS\n\n";
-    var bt = d.bonusTips || [];
-    for (var bi = 0; bi < bt.length; bi++) { o += (bi + 1) + ". " + bt[bi] + "\n"; }
+    (d.bonusTips || []).forEach(function(tip, i) { o += (i + 1) + ". " + tip + "\n"; });
   } else if (type === "template") {
     o += "OVERVIEW\n\n" + (d.overview || "") + "\n\n" + hr + "\n\n";
-    var dbs = d.databases || [];
-    for (var di = 0; di < dbs.length; di++) {
-      o += "DATABASE: " + dbs[di].name + "\n" + dbs[di].purpose + "\n\nProperties:\n";
-      var props = dbs[di].properties || [];
-      for (var pri = 0; pri < props.length; pri++) { o += "  [" + props[pri].type + "] " + props[pri].name + " - " + props[pri].description + "\n"; }
+    (d.databases || []).forEach(function(db) {
+      o += "DATABASE: " + db.name + "\n" + db.purpose + "\n\nProperties:\n";
+      (db.properties || []).forEach(function(prop) { o += "  [" + prop.type + "] " + prop.name + " - " + prop.description + "\n"; });
       o += "\nViews:\n";
-      var views = dbs[di].views || [];
-      for (var vi = 0; vi < views.length; vi++) { o += "  -> " + views[vi] + "\n"; }
+      (db.views || []).forEach(function(v) { o += "  -> " + v + "\n"; });
       o += "\n" + hr + "\n\n";
-    }
+    });
     o += "SETUP GUIDE\n\n";
-    var sg = d.setupGuide || [];
-    for (var si = 0; si < sg.length; si++) { o += "Step " + sg[si].step + ": " + sg[si].title + "\n" + sg[si].instructions + "\n\n"; }
+    (d.setupGuide || []).forEach(function(s) { o += "Step " + s.step + ": " + s.title + "\n" + s.instructions + "\n\n"; });
     o += "\nWORKFLOWS\n\n";
-    var wf = d.workflows || [];
-    for (var wi = 0; wi < wf.length; wi++) { o += wf[wi].name + "\n" + wf[wi].description + "\n\n"; }
+    (d.workflows || []).forEach(function(w) { o += w.name + "\n" + w.description + "\n\n"; });
+    o += "\nPRO TIPS\n\n";
+    (d.proTips || []).forEach(function(t, i) { o += (i + 1) + ". " + t + "\n"; });
+    o += "\nFAQ\n\n";
+    (d.faq || []).forEach(function(f) { o += "Q: " + f.question + "\nA: " + f.answer + "\n\n"; });
   } else if (type === "printable") {
     o += "WELCOME\n\n" + (d.welcomeMessage || "") + "\n\n" + hr + "\n\n";
-    var secs = d.sections || [];
-    for (var xi = 0; xi < secs.length; xi++) {
-      o += "SECTION: " + secs[xi].name.toUpperCase() + "\n" + secs[xi].purpose + "\n\n";
-      var sp = secs[xi].prompts || [];
-      for (var xp = 0; xp < sp.length; xp++) { o += "  * " + sp[xp] + "\n"; }
+    (d.sections || []).forEach(function(s) {
+      o += "SECTION: " + s.name.toUpperCase() + "\n" + s.purpose + "\n\n";
+      (s.prompts || []).forEach(function(p) { o += "  * " + p + "\n"; });
       o += "\n" + hr + "\n\n";
-    }
+    });
     o += "AFFIRMATIONS\n\n";
-    var affs = d.affirmations || [];
-    for (var ai = 0; ai < affs.length; ai++) { o += '"' + affs[ai] + '"\n'; }
+    (d.affirmations || []).forEach(function(a) { o += '"' + a + '"\n'; });
     o += "\nHOW TO USE\n\n" + (d.instructions || "");
   }
   return o;
@@ -180,6 +235,13 @@ function PromptsView(props) {
           </Sec>
         );
       })}
+      {(d.bonusTips || []).length > 0 && (
+        <Sec title="Bonus Tips" accent={true}>
+          {(d.bonusTips || []).map(function(tip, i) {
+            return <div key={i} style={{ fontSize: 13, color: "#c8b8a8", marginBottom: 6 }}>{i + 1}. {tip}</div>;
+          })}
+        </Sec>
+      )}
     </div>
   );
 }
@@ -203,6 +265,13 @@ function TemplateView(props) {
                 </div>
               );
             })}
+            {(db.views || []).length > 0 && (
+              <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(db.views || []).map(function(v, vi) {
+                  return <span key={vi} style={{ fontSize: 10, padding: "2px 9px", borderRadius: 10, background: "rgba(255,209,102,0.08)", color: "#ffd166", fontWeight: 700 }}>{v}</span>;
+                })}
+              </div>
+            )}
           </Sec>
         );
       })}
@@ -229,6 +298,25 @@ function TemplateView(props) {
           );
         })}
       </Sec>
+      {(d.proTips || []).length > 0 && (
+        <Sec title="Pro Tips">
+          {(d.proTips || []).map(function(tip, i) {
+            return <div key={i} style={{ fontSize: 13, color: "#c8b8a8", marginBottom: 6 }}>💡 {tip}</div>;
+          })}
+        </Sec>
+      )}
+      {(d.faq || []).length > 0 && (
+        <Sec title="FAQ">
+          {(d.faq || []).map(function(f, i) {
+            return (
+              <div key={i} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 3 }}>{f.question}</div>
+                <div style={{ fontSize: 12, color: "#c8b8a8", lineHeight: 1.6 }}>{f.answer}</div>
+              </div>
+            );
+          })}
+        </Sec>
+      )}
     </div>
   );
 }
@@ -244,6 +332,7 @@ function PrintableView(props) {
         return (
           <Sec key={i} title={"Section: " + s.name}>
             <p style={{ margin: "0 0 8px", fontSize: 12, color: "#c8b8a8" }}>{s.purpose}</p>
+            {s.pageLayout && <p style={{ margin: "0 0 8px", fontSize: 11, color: "#553322", fontStyle: "italic" }}>Layout: {s.pageLayout}</p>}
             {(s.prompts || []).map(function(p, pi) {
               return <div key={pi} style={{ fontSize: 12, color: "#c8b8a8", marginBottom: 5 }}>* {p}</div>;
             })}
@@ -275,19 +364,18 @@ function PrintableView(props) {
 }
 
 export default function Generator() {
-  var s = useState("");
-  var type = s[0]; var setType = s[1];
-  var s2 = useState(""); var title = s2[0]; var setTitle = s2[1];
-  var s3 = useState(""); var niche = s3[0]; var setNiche = s3[1];
-  var s4 = useState(""); var audience = s4[0]; var setAudience = s4[1];
-  var s5 = useState(false); var busy = s5[0]; var setBusy = s5[1];
-  var s6 = useState(0); var pct = s6[0]; var setPct = s6[1];
-  var s7 = useState(""); var pLabel = s7[0]; var setPLabel = s7[1];
-  var s8 = useState(null); var result = s8[0]; var setResult = s8[1];
-  var s9 = useState(""); var err = s9[0]; var setErr = s9[1];
-  var s10 = useState("preview"); var tab = s10[0]; var setTab = s10[1];
-  var s11 = useState(""); var copied = s11[0]; var setCopied = s11[1];
-  var s12 = useState([]); var history = s12[0]; var setHistory = s12[1];
+  var [type, setType] = useState("");
+  var [title, setTitle] = useState("");
+  var [niche, setNiche] = useState("");
+  var [audience, setAudience] = useState("");
+  var [busy, setBusy] = useState(false);
+  var [pct, setPct] = useState(0);
+  var [pLabel, setPLabel] = useState("");
+  var [result, setResult] = useState(null);
+  var [err, setErr] = useState("");
+  var [tab, setTab] = useState("preview");
+  var [copied, setCopied] = useState("");
+  var [history, setHistory] = useState([]);
   var top = useRef(null);
 
   useEffect(function() {
@@ -312,100 +400,37 @@ export default function Generator() {
     setResult(null);
     setErr("");
     setPct(5);
-    setPLabel("Thinking...");
-
-    var milestones = [[20,"Planning structure..."],[45,"Writing content..."],[70,"Adding depth..."],[88,"Polishing..."],[96,"Almost done..."]];
-    var mi = 0;
-    var tick = setInterval(function() {
-      if (mi < milestones.length) { setPct(milestones[mi][0]); setPLabel(milestones[mi][1]); mi++; }
-    }, 1400);
+    setPLabel("Starting...");
 
     var cfg = CONFIGS[type];
-    var MAX_RETRIES = 3;
+    var t = title; var n = niche || "General"; var a = audience || "General audience";
 
-    function attempt(attemptsLeft) {
-      fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${import.meta.env.VITE_GEMINI_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: cfg.prompt(title, niche || "General", audience || "General audience") }] }],
-            generationConfig: { maxOutputTokens: 4096, temperature: 0.7 },
-          }),
-        }
-      )
-      .then(function(res) { return res.json(); })
-      .then(function(data) {
-        // Detect 503 / UNAVAILABLE in response body
-        if (data.error && (data.error.code === 503 || data.error.status === "UNAVAILABLE")) {
-          if (attemptsLeft > 1) {
-            var attempt_num = MAX_RETRIES - attemptsLeft + 1;
-            setPLabel("Gemini is busy — retrying (" + attempt_num + "/" + MAX_RETRIES + ")...");
-            setTimeout(function() { attempt(attemptsLeft - 1); }, 2000);
-          } else {
-            clearInterval(tick);
-            setErr("Gemini is currently overloaded. Please wait 30 seconds and try again.");
-            setBusy(false);
-          }
-          return;
-        }
+    setPct(10);
+    setPLabel("Writing part 1 of 2...");
 
-        var raw = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) ? data.candidates[0].content.parts[0].text : null;
-
-        // No candidates = API error we didn't catch above
-        if (!raw) {
-          clearInterval(tick);
-          setErr("No content returned. " + (data.error ? data.error.message : "Please try again."));
-          setBusy(false);
-          return;
-        }
-
-        var clean = raw.replace(/```json/g, "").replace(/```/g, "").trim();
-        var parsed;
-        var parseError;
-        try { parsed = JSON.parse(clean); } catch(e1) {
-          try { parsed = JSON.parse(clean.replace(/\\"/g, '"')); } catch(e2) {
-            try {
-              var st = clean.indexOf("{"); var en = clean.lastIndexOf("}");
-              if (st !== -1 && en !== -1) parsed = JSON.parse(clean.slice(st, en + 1));
-              else throw new Error("No JSON object found");
-            } catch(e3) { parseError = e3.message; }
-          }
-        }
-
-        if (!parsed) {
-          clearInterval(tick);
-          setErr("Failed to parse response: " + parseError);
-          setBusy(false);
-          return;
-        }
-
-        clearInterval(tick);
-        setPct(100);
-        setPLabel("Done!");
+    withRetry(function() { return gemini(cfg.call1(t, n, a)); }, 3)
+    .then(function(part1) {
+      setPct(55);
+      setPLabel("Writing part 2 of 2...");
+      return withRetry(function() { return gemini(cfg.call2(t, n, a)); }, 3)
+      .then(function(part2) {
+        setPct(95);
+        setPLabel("Merging...");
+        var merged = cfg.merge(part1, part2);
         setTimeout(function() {
-          setResult(Object.assign({}, parsed, { _type: type, _title: title, _niche: niche }));
-          setHistory(function(h) { return [{ type: type, title: title, data: parsed, ts: Date.now() }].concat(h.slice(0, 7)); });
+          setResult(Object.assign({}, merged, { _type: type, _title: title, _niche: niche }));
+          setHistory(function(h) { return [{ type: type, title: title, data: merged, ts: Date.now() }].concat(h.slice(0, 7)); });
+          setPct(100);
           setBusy(false);
           setTab("preview");
           if (top.current) top.current.scrollIntoView({ behavior: "smooth" });
-        }, 400);
-      })
-      .catch(function() {
-        if (attemptsLeft > 1) {
-          var attempt_num = MAX_RETRIES - attemptsLeft + 1;
-          setPLabel("Network error — retrying (" + attempt_num + "/" + MAX_RETRIES + ")...");
-          setTimeout(function() { attempt(attemptsLeft - 1); }, 2000);
-        } else {
-          clearInterval(tick);
-          setErr("Generation failed after 3 attempts. Check your connection and try again.");
-          setBusy(false);
-        }
+        }, 300);
       });
-    }
-
-    attempt(MAX_RETRIES);
+    })
+    .catch(function(err) {
+      setErr(err.message || "Generation failed. Please try again.");
+      setBusy(false);
+    });
   }
 
   var cfg = CONFIGS[type] || null;
